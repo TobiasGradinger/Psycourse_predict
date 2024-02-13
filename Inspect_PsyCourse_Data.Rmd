@@ -1,0 +1,180 @@
+---
+title: "Inspect PsyCourse data"
+output: html_notebook
+---
+
+```{r SETUP-Packages, eval=T, message=F}
+library(tidyverse)
+```
+
+```{r SETUP-Clean-up, eval=T}
+# remove all objects to start with clean environment
+rm(list=ls())
+```
+
+```{r DATA Loading}
+load("W:/group_transbio/data/psycourse/231107_PsyCourse6.0_Pheno_Proposal_69_Schwarz.RData")
+data <- prop
+rm(prop)
+```
+
+```{r FUNCTION Create histogram of differences between first and last visit}
+hist_of_differences <- function(data, var1, var2) {
+  var1 <- ensym(var1)  
+  var2 <- ensym(var2)
+  data %>%
+    select(!!var1, !!var2) %>%
+    filter(complete.cases(.)) %>%
+    mutate(neg_change = !!var1 - !!var2) %>% 
+    pull(neg_change) %>% 
+    hist(main = paste("Histogram of",var1, "-",var2))
+}
+
+replace_na_and_integers <- function(x) {
+  # Replace NA with "-"
+  x[is.na(x)] <- "-"
+  # Replace integers with "+"
+  x[!is.na(x) & !is.na(as.numeric(x)) & x == as.integer(x)] <- "+"
+  return(x)
+}
+
+
+Missing_pattern <- function(data, var1, var2, var3, var4) {
+  var1 <- ensym(var1)
+  var2 <- ensym(var2)
+  var3 <- ensym(var3)
+  var4 <- ensym(var4)
+  data %>% 
+    select(!!var1, !!var2, !!var3, !!var4) %>% 
+    mutate_all(replace_na_and_integers)
+}
+```
+
+```{r}
+var1_vector <- c("v1_panss_sum_pos", "v1_panss_sum_neg", "v1_panss_sum_gen", "v1_panss_sum_tot", "v1_idsc_sum", "v1_ymrs_sum", "v1_gaf",
+                 "v1_nrpsy_tmt_A_rt", "v1_nrpsy_tmt_A_err", "v1_nrpsy_tmt_B_rt", "v1_nrpsy_tmt_B_err", "v1_nrpsy_dgt_sp_frw", "v1_nrpsy_dgt_sp_bck", "v1_nrpsy_dg_sym")
+var2_vector <- sub("^v1", "v2", var1_vector)
+var3_vector <- sub("^v1", "v3", var1_vector)
+var4_vector <- sub("^v1", "v4", var1_vector)
+
+all_vector <- c(var1_vector, var2_vector, var3_vector, var4_vector)
+
+data_modified <-
+  data %>%
+  mutate_all(~ifelse(is.numeric(.), replace(., . == -999, NA), .)) %>% 
+  filter(v1_stat == "CLINICAL") %>%
+  select(one_of(all_vector))
+
+# Combine values across rows into a single pattern
+patterns <- apply(data_modified, 1, paste, collapse = "")
+
+pattern_counts <- table(patterns)
+
+# Convert the result to a data frame
+pattern_counts_df <- as.data.frame(pattern_counts)
+
+# Rename columns for clarity
+names(pattern_counts_df) <- c("Pattern", "Frequency")
+
+# Print the result
+pattern_counts_df %>% 
+  mutate(Percentage = Frequency/sum(Frequency)*100) %>% 
+  arrange(desc(Percentage))
+
+dplyr::recode()
+
+data_modified$
+```
+
+
+```{r}
+library(dplyr)
+
+# Create a sample dataframe
+df <- data.frame(
+  var1 = c(1, 2, 3),
+  var2 = c(4, 5, 6),
+  var3 = c(7, 8, 9)
+)
+
+# Vector of variable names to select
+variables_to_select <- c("var1", "var3")
+
+# Select variables based on the vector of variable names
+selected_df <- df %>%
+  select(one_of(variables_to_select))
+
+# Print the selected dataframe
+print(selected_df)
+```
+
+
+```{r}
+var1_vector <- c("v1_panss_sum_pos", "v1_panss_sum_neg", "v1_panss_sum_gen", "v1_panss_sum_tot", "v1_idsc_sum", "v1_ymrs_sum", "v1_gaf",
+                 "v1_nrpsy_tmt_A_rt", "v1_nrpsy_tmt_A_err", "v1_nrpsy_tmt_B_rt", "v1_nrpsy_tmt_B_err", "v1_nrpsy_dgt_sp_frw", "v1_nrpsy_dgt_sp_bck", "v1_nrpsy_dg_sym",
+                 "v1_nrpsy_mwtb")
+var2_vector <- sub("^v1", "v2", var1_vector)
+var3_vector <- sub("^v1", "v3", var1_vector)
+var4_vector <- sub("^v1", "v4", var1_vector)
+
+
+results <- 
+  data %>% 
+  filter(v1_stat == "CLINICAL") %>%
+  mutate_all(~replace(., .==-999, NA)) %>% 
+  {mapply(hist_of_differences, MoreArgs = list(data = .), var1 = var1_vector, var2 = var4_vector, SIMPLIFY = FALSE)}
+print(results)
+```
+
+```{r}
+data %>%
+  mutate_all(~replace(., .==-999, NA)) %>% 
+  filter(v1_stat == "CLINICAL") %>% 
+  select(v1_age, v1_spec_emp, v1_disabl_pens, v1_wrk_abs_pst_5_yrs) %>% 
+  filter(v1_age<65) %>% 
+  # select(v1_age) %>%
+  # pull %>%
+  summary()
+```
+
+```{r}
+data.plot <-
+data %>%
+  filter(v1_stat == "CLINICAL") %>%
+  # select(v1_id, matches("panss_sum|bdi2_sum")) %>%
+  select(v1_id, matches("bdi2_sum")) %>% 
+  rename(id = v1_id) %>% 
+  pivot_longer(cols = starts_with("v"),
+               names_to = c(".value", "test"),
+               names_pattern = "^(v\\d+)_(.*)$",
+               values_to = "value") %>% 
+  filter(rowSums(is.na(.)) <= 2)
+
+```
+
+```{r}
+data.plot <-
+data %>%
+  filter(v1_stat == "CLINICAL", v1_age<25) %>%
+  # select(v1_id, matches("panss_sum|bdi2_sum")) %>%
+  select(v1_id, matches("bdi2_sum")) %>% 
+  rename(id = v1_id) %>% 
+  pivot_longer(cols = starts_with("v"),
+               names_to = "timepoint",
+               values_to = "value")
+```
+
+
+
+```{r}
+ggplot(data.plot, aes(x = timepoint, y = value, group = id, color = id)) +
+  geom_path(show.legend = F) +
+  theme_minimal() +
+  labs(x = "Timepoint", y = "Value", title = "Line plot of data for 4 timepoints")
+```
+
+
+
+
+
+
