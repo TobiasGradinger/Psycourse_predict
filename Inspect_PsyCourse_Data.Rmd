@@ -13,10 +13,286 @@ rm(list=ls())
 ```
 
 ```{r DATA Loading}
-load("W:/group_transbio/data/psycourse/231107_PsyCourse6.0_Pheno_Proposal_69_Schwarz.RData")
+load("231107_PsyCourse6.0_Pheno_Proposal_69_Schwarz.RData")
 data <- prop
 rm(prop)
 ```
+
+```{r DATA Filter vectors}
+F20x_id <-
+data %>%
+  filter(v1_stat == "CLINICAL") %>% 
+  filter(str_detect(v1_scid_dsm_dx_cat, "Schizophrenia")) %>% 
+  pull(v1_id)
+
+F25x_id <-
+  data %>%
+  filter(v1_stat == "CLINICAL") %>% 
+  filter(str_detect(v1_scid_dsm_dx_cat, "Schizoaffective Disorder")) %>% 
+  pull(v1_id)
+
+# maybe mapping to ICD not quite correct
+F23x_id <-
+data %>%
+  filter(v1_stat == "CLINICAL") %>%
+  select(v1_id, v1_scid_dsm_dx_cat) %>% 
+  filter(str_detect(v1_scid_dsm_dx_cat, "Schizophreniform Disorder")) %>% 
+  pull(v1_id)
+
+F31x_id <-
+  data %>%
+  filter(v1_stat == "CLINICAL") %>%
+  select(v1_id, v1_scid_dsm_dx_cat) %>% 
+  filter(str_detect(v1_scid_dsm_dx_cat, "Bipolar")) %>% 
+  pull(v1_id)
+
+data %>%
+  filter(v1_stat == "CLINICAL") %>%
+  select(v1_scid_dsm_dx_cat) %>% 
+  distinct()
+```
+
+
+# Analysis focused on PANSS
+There is several problems with the timecourse data:
+1. It is only 4 timepoints every 6 months thus covering only 18 months.
+2. Some of the timepoints are missing.
+
+```{r DATA ANALYSIS Table of missing pattern PANSS sum_tot}
+data %>%
+  filter(v1_stat == "CLINICAL") %>%
+  select(v1_id, v1_panss_sum_tot, v2_panss_sum_tot, v3_panss_sum_tot, v4_panss_sum_tot) %>% 
+  rename(ID = v1_id) %>% 
+  pivot_longer(cols = starts_with("v"),
+               names_to = "Time_Point",
+               names_pattern = "v(\\d+)_panss_sum_tot",
+               values_to = "panss_sum_tot") %>%
+  mutate(panss_sum_tot = ifelse(is.na(panss_sum_tot), "-", "+")) %>% 
+  group_by(ID) %>% 
+  summarise(pattern = toString(panss_sum_tot)) %>% 
+  count(pattern) %>%
+  mutate(percentage = round((n/sum(n)*100), 2)) %>% 
+  arrange(desc(n))
+```
+
+```{r DATA ANALYSIS Table of missing pattern PANSS F20x remission criteria items}
+search_vector  = c("p1","p2","p3","n1","n4","n6","g5","g9")
+
+data %>%
+  filter(v1_stat == "CLINICAL") %>%
+  select(v1_id, contains(search_vector)) %>%
+  rename(ID = v1_id) %>%
+  filter(ID %in% F20x_id) %>%
+  mutate_at(vars(matches("v(\\d+)_panss")), as.numeric) %>% 
+  pivot_longer(cols = -ID,
+               names_to = c("time_point", "item"),
+               names_pattern = "v(\\d+)_panss_(.+)",
+               values_to = "value") %>%
+  group_by(ID, time_point) %>% 
+  summarise(miss = ifelse(any(is.na(value)), '-', '+')) %>% 
+  summarise(pattern = toString(miss)) %>% 
+  count(pattern) %>%
+  mutate(percentage = round((n/sum(n)*100), 2)) %>% 
+  arrange(desc(n))
+```
+
+```{r DATA ANALYSIS Table of missing pattern YMRS sum_tot also F31x remission criterium}
+data %>%
+  filter(v1_stat == "CLINICAL") %>%
+  select(v1_id, contains("ymrs_sum")) %>% 
+  rename(ID = v1_id) %>%
+  filter(ID %in% F31x_id) %>%
+  pivot_longer(cols = starts_with("v"),
+               names_to = "Time_Point",
+               names_pattern = "v(\\d+)_ymrs_sum",
+               values_to = "ymrs_sum_tot") %>%
+  mutate(ymrs_sum_tot = ifelse(is.na(ymrs_sum_tot), "-", "+")) %>% 
+  group_by(ID) %>% 
+  summarise(pattern = toString(ymrs_sum_tot)) %>% 
+  count(pattern) %>%
+  mutate(percentage = round((n/sum(n)*100), 2)) %>% 
+  arrange(desc(n))
+```
+
+3. Evaluation of the changes throughout the 18 months timecourse are dependend on the starting level. E.g.  starting high and then stagnate is bad while starting low and then stagnate is good.
+```{r DATA ANALYSIS visualize timecourse PANSS}
+data %>%
+  filter(v1_stat == "CLINICAL") %>%
+  select(v1_id, v1_panss_sum_tot, v2_panss_sum_tot, v3_panss_sum_tot, v4_panss_sum_tot) %>% 
+  rename(ID = v1_id) %>%
+  pull(v1_panss_sum_tot) %>% 
+  boxplot()
+
+data %>%
+  filter(v1_stat == "CLINICAL") %>%
+  select(v1_id, contains("v1_panss_sum")) 
+```
+
+## Possible solutions
+ad 1. Try to approximate the longterm timecourse from the 18 months time course
+Problems:
+a) Sampling started at a random timepoint within the overall timecourse 
+b) Sampling rate is only every 6 months - a lot can happen in between
+ad b) There are several items which cover the period since the last visit
+
+1.1 Define remission within the 18 months timecourse within the F20.x patients and the F31x patients
+
+1.1.1 Always in remission vs rest
+Here subjects who never have any of the remission defining items over 3 during the full 18 months are defined as always in remission.
+```{r DATA ANALYSIS F20x remission always}
+search_vector  = c("p1","p2","p3","n1","n4","n6","g5","g9")
+
+F20x_id_remission_always <-
+data %>%
+  filter(v1_stat == "CLINICAL") %>%
+  select(v1_id, contains(search_vector)) %>%
+  rename(ID = v1_id) %>%
+  filter(ID %in% F20x_id) %>%
+  mutate_at(vars(matches("v(\\d+)_panss")), as.numeric) %>% 
+  pivot_longer(cols = -ID,
+               names_to = c("time_point", "item"),
+               names_pattern = "v(\\d+)_panss_(.+)",
+               values_to = "value") %>% 
+  group_by(ID) %>% 
+  summarise(always_in_remission=all(value<=3, na.rm = T)) %>% 
+  filter(always_in_remission == T) %>% 
+  pull(ID)
+```
+
+```{r DATA ANALYSIS F31x remission always}
+# need to include the definition for remission regarding depression (or maybe not and call it "psychotic remission")
+F31x_id_remission_always <-
+data %>%
+  filter(v1_stat == "CLINICAL") %>%
+  select(v1_id, contains("ymrs_sum")) %>%
+  rename(ID = v1_id) %>%
+  filter(ID %in% F31x_id) %>%
+  pivot_longer(cols = -ID,
+               names_to = c("time_point"),
+               names_pattern = "v(\\d+)",
+               values_to = "ymrs_sum_score") %>% 
+  group_by(ID) %>% 
+  summarise(always_in_remission=all(ymrs_sum_score<=7, na.rm = T)) %>% 
+  filter(always_in_remission == T) %>% 
+  pull(ID)
+```
+
+1.1.2 Ever in remission vs rest
+```{r DATA ANALYSIS F20x remission ever}
+check_two_true_in_a_row <- function(vector) {
+  any(vector & lead(vector, default = FALSE))
+}
+
+# Only PANSS scores - if below the threshold based on Andreasen et al 2005 on two consecutive appointments (6 months apart - in paper 6 months as time criteria)
+
+search_vector  = c("p1","p2","p3","n1","n4","n6","g5","g9")
+
+F20x_id_remission_ever <-
+data %>%
+  filter(v1_stat == "CLINICAL") %>%
+  select(v1_id, contains(search_vector)) %>%
+  rename(ID = v1_id) %>%
+  filter(ID %in% F20x_id) %>% 
+  mutate_at(vars(matches("v(\\d+)_panss")), as.numeric) %>% 
+  pivot_longer(cols = -ID,
+               names_to = c("time_point", "item"),
+               names_pattern = "v(\\d+)_panss_(.+)",
+               values_to = "value") %>% 
+  group_by(ID, time_point) %>% 
+  summarise(remission=all(value<=3, na.rm = T)) %>%
+  summarise(ever_in_remission = check_two_true_in_a_row(remission)) %>%
+  filter(ever_in_remission == T) %>% 
+  pull(ID)
+```
+
+```{r DATA ANALYSIS F31x remission ever}
+#could not find a time criteria for the mania remission according to YMRS
+F31x_id_remission_ever <-
+data %>%
+  filter(v1_stat == "CLINICAL") %>%
+  select(v1_id, contains("ymrs_sum")) %>%
+  rename(ID = v1_id) %>%
+  filter(ID %in% F31x_id) %>%
+  pivot_longer(cols = -ID,
+               names_to = c("time_point"),
+               names_pattern = "v(\\d+)",
+               values_to = "ymrs_sum_score") %>% 
+  group_by(ID) %>% 
+  summarise(ever_in_remission=any(ymrs_sum_score<=7, na.rm = T)) %>%
+  filter(ever_in_remission == T) %>% 
+  pull(ID)
+```
+
+1.1.3 Ever in full remission (no episode during the 6 months period) vs rest
+Here I used the "clin_ill_ep_snc_lst" to check if there was a relapse during the 6 months between the measurements. As far as I understood it so far, for this item peaople where just asked whether they had a relapse. It could be a better idea to rather use hospital stay durch the 6 months or something similar which is more objective.
+```{r DATA ANALYSIS F20x fullremission ever}
+search_vector  = c("p1","p2","p3","n1","n4","n6","g5","g9")
+
+vector_not_in_remission <-
+data %>%
+  filter(v1_stat == "CLINICAL") %>%
+  select(v1_id, contains(search_vector)) %>%
+  rename(ID = v1_id) %>%
+  filter(ID %in% F20x_id) %>% 
+  mutate_at(vars(matches("v(\\d+)_panss")), as.numeric) %>% 
+  pivot_longer(cols = -ID,
+               names_to = c("time_point", "item"),
+               names_pattern = "v(\\d+)_panss_(.+)",
+               values_to = "value") %>% 
+  group_by(ID, time_point) %>% 
+  summarise(remission=all(value<=3, na.rm = T)) %>%
+  left_join(x=.,
+            y= data %>%
+              select(v1_id, contains("clin_ill_ep_snc_lst")) %>%
+              rename(ID = v1_id) %>%
+              filter(ID %in% F20x_id) %>%
+              mutate_at(vars(contains("clin_ill_ep_snc_lst")), ~if_else(.=="N",TRUE,FALSE, missing = TRUE)) %>% 
+               pivot_longer(cols = -ID,
+               names_to = c("time_point"),
+               names_pattern = "v(\\d+)",
+               values_to = "in_remission_since_last_visit"),
+  ) %>% 
+  group_by(ID) %>% 
+  mutate(full_remission = as.logical(remission*lead(in_remission_since_last_visit, default = TRUE))) %>% 
+  summarise(ever_in_full_remission = check_two_true_in_a_row(full_remission)) %>%
+  #count(ever_in_full_remission)
+  filter(ever_in_full_remission==FALSE) %>% 
+  pull(ID)
+```
+
+ad 2. Find a clever way to impute. Cases with 3/4 measurements should be easy. Even 2/4 especially +--+ and +-+- should be ok. Worst is +--- which is 30% of the clinical cases.
+
+
+ad 3. There is ways to deal with censoring (Tobit etc.) but this does not seem suitable in this case. But then it is not as much of a problem as I thought. It is more of a problem that most patients are pretty good.
+
+Overall it seems better to choose an approach, where we "inject some domain knowledge". For example there is some hard definitions for remission and some paper with 20 year timecourses. Using this knowledge it might be possible to classify the subjects into useful categories.
+
+
+
+```{r}
+data %>% 
+  filter(v1_stat== "CLINICAL") %>% 
+  select(contains("panss")) %>%
+  mutate_at(vars(matches("v(\\d+)_panss")), as.numeric) %>%
+  rowwise() %>%
+  mutate(missing_in_row = sum(is.na(c_across(everything())))) %>%
+  filter(missing_in_row>10)
+
+  pull(missing_in_row) %>% 
+  #summary()
+  
+```
+
+
+
+
+
+
+
+
+
+# Older stuff
+More generic functions but decided to first focus on one variable (PNASS). Maybe some of the function are helpfull later. Thus keep the code for now.
 
 ```{r FUNCTION Create histogram of differences between first and last visit}
 hist_of_differences <- function(data, var1, var2) {
