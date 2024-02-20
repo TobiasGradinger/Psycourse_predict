@@ -1,10 +1,16 @@
 ---
 title: "Inspect PsyCourse data"
-output: html_notebook
+output:
+  html_notebook: default
+  pdf_document: default
 ---
 
 ```{r SETUP-Packages, eval=T, message=F}
 library(tidyverse)
+```
+
+```{r SETUP Global Options, eval=TRUE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
 ```
 
 ```{r SETUP-Clean-up, eval=T}
@@ -52,12 +58,51 @@ data %>%
   distinct()
 ```
 
-
-# Analysis focused on PANSS
-There is several problems with the timecourse data:
+# Analysis focused on F20x and F31x
+There is several problems with the timecourse data:  
 1. It is only 4 timepoints every 6 months thus covering only 18 months.
+
+```{r GRAPHIC Timecourse examples}
+library(ggplot2)
+
+# Define a custom sigmoid function with a specified intercept
+custom_sigmoid <- function(x, a, b, intercept) {
+  1 / (1 + exp(-a * (x - b))) + intercept
+}
+
+# Create a dataframe with x-axis values (months)
+df <- data.frame(month = seq(1, 120, by = 6))
+
+# Generate y-axis values for the normal distribution
+normal_density <- dnorm(df$month, mean = 60, sd = 10)
+scaling_factor <- 1 / max(normal_density)  # Calculate scaling factor to limit the maximum value to 1
+normal_y <- normal_density * scaling_factor
+
+# Generate y-axis values for the custom sigmoid function with a higher intercept
+sigmoid_y <- custom_sigmoid(df$month, a = 0.2, b = 50, intercept = 2)
+
+# Combine x and y values into a dataframe
+df <- cbind(df, normal_y, sigmoid_y)
+
+# Reshape dataframe from wide to long format for ggplot
+df_long <- reshape2::melt(df, id.vars = "month", variable.name = "line_type", value.name = "severity")
+
+# Plot using ggplot2
+ggplot(df_long, aes(x = month, y = severity, color = line_type)) +
+  geom_line() +
+  geom_vline(xintercept = seq(18, 120, by = 18), linetype = "dotted", color = "blue") +  # Add vertical lines every 18 months
+  labs(x = "Months", y = "Disease Severity") +
+  scale_color_manual(values = c("darkgreen", "red"), labels = c("Good timecourse", "Bad timecourse")) +
+  theme_minimal() +
+  theme(panel.grid = element_blank()) +  # Remove background grid lines
+  scale_y_continuous(breaks = c(0, 1, 2, 3), labels = c(0, 1, 0, 1)) +
+  guides(color = guide_legend(title = NULL))
+
+```
+
 2. Some of the timepoints are missing.
 
+  -PANSS sum_tot
 ```{r DATA ANALYSIS Table of missing pattern PANSS sum_tot}
 data %>%
   filter(v1_stat == "CLINICAL") %>%
@@ -74,7 +119,7 @@ data %>%
   mutate(percentage = round((n/sum(n)*100), 2)) %>% 
   arrange(desc(n))
 ```
-
+  -PANSS remission criteria items
 ```{r DATA ANALYSIS Table of missing pattern PANSS F20x remission criteria items}
 search_vector  = c("p1","p2","p3","n1","n4","n6","g5","g9")
 
@@ -95,7 +140,7 @@ data %>%
   mutate(percentage = round((n/sum(n)*100), 2)) %>% 
   arrange(desc(n))
 ```
-
+  -YMRS sum_tot
 ```{r DATA ANALYSIS Table of missing pattern YMRS sum_tot also F31x remission criterium}
 data %>%
   filter(v1_stat == "CLINICAL") %>%
@@ -122,23 +167,19 @@ data %>%
   rename(ID = v1_id) %>%
   pull(v1_panss_sum_tot) %>% 
   boxplot()
-
-data %>%
-  filter(v1_stat == "CLINICAL") %>%
-  select(v1_id, contains("v1_panss_sum")) 
 ```
 
 ## Possible solutions
 ad 1. Try to approximate the longterm timecourse from the 18 months time course
-Problems:
-a) Sampling started at a random timepoint within the overall timecourse 
-b) Sampling rate is only every 6 months - a lot can happen in between
+Problems:  
+a) Sampling started at a random timepoint within the overall timecourse   
+b) Sampling rate is only every 6 months - a lot can happen in between  
 ad b) There are several items which cover the period since the last visit
 
 1.1 Define remission within the 18 months timecourse within the F20.x patients and the F31x patients
 
 1.1.1 Always in remission vs rest
-Here subjects who never have any of the remission defining items over 3 during the full 18 months are defined as always in remission.
+Here subjects who never have a value higher than 3 in any of the remission defining items during the full 18 months are defined as always in remission.
 ```{r DATA ANALYSIS F20x remission always}
 search_vector  = c("p1","p2","p3","n1","n4","n6","g5","g9")
 
@@ -157,6 +198,20 @@ data %>%
   summarise(always_in_remission=all(value<=3, na.rm = T)) %>% 
   filter(always_in_remission == T) %>% 
   pull(ID)
+
+data %>%
+  filter(v1_stat == "CLINICAL") %>%
+  select(v1_id, contains(search_vector)) %>%
+  rename(ID = v1_id) %>%
+  filter(ID %in% F20x_id) %>%
+  mutate_at(vars(matches("v(\\d+)_panss")), as.numeric) %>% 
+  pivot_longer(cols = -ID,
+               names_to = c("time_point", "item"),
+               names_pattern = "v(\\d+)_panss_(.+)",
+               values_to = "value") %>% 
+  group_by(ID) %>% 
+  summarise(always_in_remission=all(value<=3, na.rm = T)) %>% 
+  count(always_in_remission)
 ```
 
 ```{r DATA ANALYSIS F31x remission always}
@@ -175,9 +230,24 @@ data %>%
   summarise(always_in_remission=all(ymrs_sum_score<=7, na.rm = T)) %>% 
   filter(always_in_remission == T) %>% 
   pull(ID)
+
+data %>%
+  filter(v1_stat == "CLINICAL") %>%
+  select(v1_id, contains("ymrs_sum")) %>%
+  rename(ID = v1_id) %>%
+  filter(ID %in% F31x_id) %>%
+  pivot_longer(cols = -ID,
+               names_to = c("time_point"),
+               names_pattern = "v(\\d+)",
+               values_to = "ymrs_sum_score") %>% 
+  group_by(ID) %>% 
+  summarise(always_in_remission=all(ymrs_sum_score<=7, na.rm = T)) %>% 
+  count(always_in_remission)
 ```
 
-1.1.2 Ever in remission vs rest
+1.1.2 Ever in remission vs rest  
+
+F20x
 ```{r DATA ANALYSIS F20x remission ever}
 check_two_true_in_a_row <- function(vector) {
   any(vector & lead(vector, default = FALSE))
@@ -203,8 +273,24 @@ data %>%
   summarise(ever_in_remission = check_two_true_in_a_row(remission)) %>%
   filter(ever_in_remission == T) %>% 
   pull(ID)
+
+data %>%
+  filter(v1_stat == "CLINICAL") %>%
+  select(v1_id, contains(search_vector)) %>%
+  rename(ID = v1_id) %>%
+  filter(ID %in% F20x_id) %>% 
+  mutate_at(vars(matches("v(\\d+)_panss")), as.numeric) %>% 
+  pivot_longer(cols = -ID,
+               names_to = c("time_point", "item"),
+               names_pattern = "v(\\d+)_panss_(.+)",
+               values_to = "value") %>% 
+  group_by(ID, time_point) %>% 
+  summarise(remission=all(value<=3, na.rm = T)) %>%
+  summarise(ever_in_remission = check_two_true_in_a_row(remission)) %>% 
+  count(ever_in_remission)
 ```
 
+F31x
 ```{r DATA ANALYSIS F31x remission ever}
 #could not find a time criteria for the mania remission according to YMRS
 F31x_id_remission_ever <-
@@ -221,10 +307,25 @@ data %>%
   summarise(ever_in_remission=any(ymrs_sum_score<=7, na.rm = T)) %>%
   filter(ever_in_remission == T) %>% 
   pull(ID)
+
+data %>%
+  filter(v1_stat == "CLINICAL") %>%
+  select(v1_id, contains("ymrs_sum")) %>%
+  rename(ID = v1_id) %>%
+  filter(ID %in% F31x_id) %>%
+  pivot_longer(cols = -ID,
+               names_to = c("time_point"),
+               names_pattern = "v(\\d+)",
+               values_to = "ymrs_sum_score") %>% 
+  group_by(ID) %>% 
+  summarise(ever_in_remission=any(ymrs_sum_score<=7, na.rm = T)) %>% 
+  count(ever_in_remission)
 ```
 
 1.1.3 Ever in full remission (no episode during the 6 months period) vs rest
 Here I used the "clin_ill_ep_snc_lst" to check if there was a relapse during the 6 months between the measurements. As far as I understood it so far, for this item peaople where just asked whether they had a relapse. It could be a better idea to rather use hospital stay durch the 6 months or something similar which is more objective.
+
+F20x
 ```{r DATA ANALYSIS F20x fullremission ever}
 search_vector  = c("p1","p2","p3","n1","n4","n6","g5","g9")
 
@@ -258,18 +359,42 @@ data %>%
   #count(ever_in_full_remission)
   filter(ever_in_full_remission==FALSE) %>% 
   pull(ID)
+
+data %>%
+  filter(v1_stat == "CLINICAL") %>%
+  select(v1_id, contains(search_vector)) %>%
+  rename(ID = v1_id) %>%
+  filter(ID %in% F20x_id) %>% 
+  mutate_at(vars(matches("v(\\d+)_panss")), as.numeric) %>% 
+  pivot_longer(cols = -ID,
+               names_to = c("time_point", "item"),
+               names_pattern = "v(\\d+)_panss_(.+)",
+               values_to = "value") %>% 
+  group_by(ID, time_point) %>% 
+  summarise(remission=all(value<=3, na.rm = T)) %>%
+  left_join(x=.,
+            y= data %>%
+              select(v1_id, contains("clin_ill_ep_snc_lst")) %>%
+              rename(ID = v1_id) %>%
+              filter(ID %in% F20x_id) %>%
+              mutate_at(vars(contains("clin_ill_ep_snc_lst")), ~if_else(.=="N",TRUE,FALSE, missing = TRUE)) %>% 
+               pivot_longer(cols = -ID,
+               names_to = c("time_point"),
+               names_pattern = "v(\\d+)",
+               values_to = "in_remission_since_last_visit"),
+  ) %>% 
+  group_by(ID) %>% 
+  mutate(full_remission = as.logical(remission*lead(in_remission_since_last_visit, default = TRUE))) %>% 
+  summarise(ever_in_full_remission = check_two_true_in_a_row(full_remission)) %>%
+  count(ever_in_full_remission)
 ```
 
 ad 2. Find a clever way to impute. Cases with 3/4 measurements should be easy. Even 2/4 especially +--+ and +-+- should be ok. Worst is +--- which is 30% of the clinical cases.
 
-
 ad 3. There is ways to deal with censoring (Tobit etc.) but this does not seem suitable in this case. But then it is not as much of a problem as I thought. It is more of a problem that most patients are pretty good.
 
 Overall it seems better to choose an approach, where we "inject some domain knowledge". For example there is some hard definitions for remission and some paper with 20 year timecourses. Using this knowledge it might be possible to classify the subjects into useful categories.
-
-
-
-```{r}
+```{r, eval=FALSE}
 data %>% 
   filter(v1_stat== "CLINICAL") %>% 
   select(contains("panss")) %>%
@@ -278,179 +403,7 @@ data %>%
   mutate(missing_in_row = sum(is.na(c_across(everything())))) %>%
   filter(missing_in_row>10)
 
-  pull(missing_in_row) %>% 
+  pull(missing_in_row)
   #summary()
   
 ```
-
-
-
-
-
-
-
-
-
-# Older stuff
-More generic functions but decided to first focus on one variable (PNASS). Maybe some of the function are helpfull later. Thus keep the code for now.
-
-```{r FUNCTION Create histogram of differences between first and last visit}
-hist_of_differences <- function(data, var1, var2) {
-  var1 <- ensym(var1)  
-  var2 <- ensym(var2)
-  data %>%
-    select(!!var1, !!var2) %>%
-    filter(complete.cases(.)) %>%
-    mutate(neg_change = !!var1 - !!var2) %>% 
-    pull(neg_change) %>% 
-    hist(main = paste("Histogram of",var1, "-",var2))
-}
-
-replace_na_and_integers <- function(x) {
-  # Replace NA with "-"
-  x[is.na(x)] <- "-"
-  # Replace integers with "+"
-  x[!is.na(x) & !is.na(as.numeric(x)) & x == as.integer(x)] <- "+"
-  return(x)
-}
-
-
-Missing_pattern <- function(data, var1, var2, var3, var4) {
-  var1 <- ensym(var1)
-  var2 <- ensym(var2)
-  var3 <- ensym(var3)
-  var4 <- ensym(var4)
-  data %>% 
-    select(!!var1, !!var2, !!var3, !!var4) %>% 
-    mutate_all(replace_na_and_integers)
-}
-```
-
-```{r}
-var1_vector <- c("v1_panss_sum_pos", "v1_panss_sum_neg", "v1_panss_sum_gen", "v1_panss_sum_tot", "v1_idsc_sum", "v1_ymrs_sum", "v1_gaf",
-                 "v1_nrpsy_tmt_A_rt", "v1_nrpsy_tmt_A_err", "v1_nrpsy_tmt_B_rt", "v1_nrpsy_tmt_B_err", "v1_nrpsy_dgt_sp_frw", "v1_nrpsy_dgt_sp_bck", "v1_nrpsy_dg_sym")
-var2_vector <- sub("^v1", "v2", var1_vector)
-var3_vector <- sub("^v1", "v3", var1_vector)
-var4_vector <- sub("^v1", "v4", var1_vector)
-
-all_vector <- c(var1_vector, var2_vector, var3_vector, var4_vector)
-
-data_modified <-
-  data %>%
-  mutate_all(~ifelse(is.numeric(.), replace(., . == -999, NA), .)) %>% 
-  filter(v1_stat == "CLINICAL") %>%
-  select(one_of(all_vector))
-
-# Combine values across rows into a single pattern
-patterns <- apply(data_modified, 1, paste, collapse = "")
-
-pattern_counts <- table(patterns)
-
-# Convert the result to a data frame
-pattern_counts_df <- as.data.frame(pattern_counts)
-
-# Rename columns for clarity
-names(pattern_counts_df) <- c("Pattern", "Frequency")
-
-# Print the result
-pattern_counts_df %>% 
-  mutate(Percentage = Frequency/sum(Frequency)*100) %>% 
-  arrange(desc(Percentage))
-
-dplyr::recode()
-
-data_modified$
-```
-
-
-```{r}
-library(dplyr)
-
-# Create a sample dataframe
-df <- data.frame(
-  var1 = c(1, 2, 3),
-  var2 = c(4, 5, 6),
-  var3 = c(7, 8, 9)
-)
-
-# Vector of variable names to select
-variables_to_select <- c("var1", "var3")
-
-# Select variables based on the vector of variable names
-selected_df <- df %>%
-  select(one_of(variables_to_select))
-
-# Print the selected dataframe
-print(selected_df)
-```
-
-
-```{r}
-var1_vector <- c("v1_panss_sum_pos", "v1_panss_sum_neg", "v1_panss_sum_gen", "v1_panss_sum_tot", "v1_idsc_sum", "v1_ymrs_sum", "v1_gaf",
-                 "v1_nrpsy_tmt_A_rt", "v1_nrpsy_tmt_A_err", "v1_nrpsy_tmt_B_rt", "v1_nrpsy_tmt_B_err", "v1_nrpsy_dgt_sp_frw", "v1_nrpsy_dgt_sp_bck", "v1_nrpsy_dg_sym",
-                 "v1_nrpsy_mwtb")
-var2_vector <- sub("^v1", "v2", var1_vector)
-var3_vector <- sub("^v1", "v3", var1_vector)
-var4_vector <- sub("^v1", "v4", var1_vector)
-
-
-results <- 
-  data %>% 
-  filter(v1_stat == "CLINICAL") %>%
-  mutate_all(~replace(., .==-999, NA)) %>% 
-  {mapply(hist_of_differences, MoreArgs = list(data = .), var1 = var1_vector, var2 = var4_vector, SIMPLIFY = FALSE)}
-print(results)
-```
-
-```{r}
-data %>%
-  mutate_all(~replace(., .==-999, NA)) %>% 
-  filter(v1_stat == "CLINICAL") %>% 
-  select(v1_age, v1_spec_emp, v1_disabl_pens, v1_wrk_abs_pst_5_yrs) %>% 
-  filter(v1_age<65) %>% 
-  # select(v1_age) %>%
-  # pull %>%
-  summary()
-```
-
-```{r}
-data.plot <-
-data %>%
-  filter(v1_stat == "CLINICAL") %>%
-  # select(v1_id, matches("panss_sum|bdi2_sum")) %>%
-  select(v1_id, matches("bdi2_sum")) %>% 
-  rename(id = v1_id) %>% 
-  pivot_longer(cols = starts_with("v"),
-               names_to = c(".value", "test"),
-               names_pattern = "^(v\\d+)_(.*)$",
-               values_to = "value") %>% 
-  filter(rowSums(is.na(.)) <= 2)
-
-```
-
-```{r}
-data.plot <-
-data %>%
-  filter(v1_stat == "CLINICAL", v1_age<25) %>%
-  # select(v1_id, matches("panss_sum|bdi2_sum")) %>%
-  select(v1_id, matches("bdi2_sum")) %>% 
-  rename(id = v1_id) %>% 
-  pivot_longer(cols = starts_with("v"),
-               names_to = "timepoint",
-               values_to = "value")
-```
-
-
-
-```{r}
-ggplot(data.plot, aes(x = timepoint, y = value, group = id, color = id)) +
-  geom_path(show.legend = F) +
-  theme_minimal() +
-  labs(x = "Timepoint", y = "Value", title = "Line plot of data for 4 timepoints")
-```
-
-
-
-
-
-
