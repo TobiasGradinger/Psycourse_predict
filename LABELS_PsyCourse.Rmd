@@ -1,0 +1,22 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+```{r SETUP Load packages}
+#library(ranger)
+#library(caret)
+library(tidyverse)
+```
+
+```{r SETUP Global chunk options, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      message = FALSE,
+                      warning = FALSE,
+                      fig.height = 3.5,
+                      fig.width = 4)
+```
+
+```{r SETUP Clean-up, eval=T}
+# remove all objects to start with clean environment
+rm(list=ls())
+```
