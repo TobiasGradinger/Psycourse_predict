@@ -97,11 +97,10 @@ New dimensions are generally created based on crosssectional data.
 ## Crossectional
 
 ### DIMENSIONS PCA dimensions within PANSS (psychoticism, disorganization, negative symptoms)
-
+TODO: So far the PCA of the PsyCourse PANSS data of timepoint 1 does not show the PCs reported in the literature. Find reasons.
 #### Schizophrenic patients
-
-
-```{r}
+The PANSS data of the schizophrenic patients at timepoint 1 is selected.
+```{r DATA}
 t1_schizo_panss_data <-
 data %>%
   filter(v1_stat == "CLINICAL") %>%
@@ -111,7 +110,8 @@ data %>%
   na.omit()
 ```
 
-```{r}
+PCA analysis on the data is performed.
+```{r DATA ANA PCA inspectiony}
 # Run PCA
 pca_result <- prcomp(t1_schizo_panss_data %>% 
                        select(matches("v1_panss_\\w\\d")),
@@ -162,8 +162,6 @@ top_loadings_PC3
 
 
 ```
-
-
 
 ## Longitudinal
 
