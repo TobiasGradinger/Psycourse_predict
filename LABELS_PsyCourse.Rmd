@@ -183,8 +183,8 @@ Not all criteria for the metabolic syndrome are available in the data:
  + no fasting plasma glucose or oral glucose tolerance test
  
 #### Label
+Part of the criteria is whether a person takes medication to treat hypertriglyceridamia or hypertension. These are criteria is not considered in this simple version of the label.
 
-Simple first version
 ```{r DATA ANALYSIS All subjects metabolic syndrome simple at v1}
 label_metabolic_syndrome_simple <-
   data %>% 
@@ -196,6 +196,7 @@ label_metabolic_syndrome_simple <-
   select(v1_id, metabolic_syndrome)
 ```
 
+Read out of the categories and subcategories of the medications in the dataset.
 ```{r DATA ANALYSIS distinct categories of medications}
 med_categories <-
 v1_med_clin_orig %>% 
@@ -214,7 +215,7 @@ v1_med_clin_orig %>%
   distinct(Value)
 ```
 
-Taking the medication criteria into account.
+For this version of the label the  medication criteria is taken into account. 
 ```{r DATA ANALYSIS All subjects metabolic syndrome at v1}
 label_metabolic_syndrome <-
 data %>%
@@ -233,12 +234,14 @@ data %>%
   select(v1_id, metabolic_syndrome, central_obesity)
 ```
 
+This overview shows that, as expected, there is not much of a difference between the full and the simple version of the label.
 ```{r DATA overview over the results}
 summary(label_metabolic_syndrome)
 summary(label_metabolic_syndrome_simple)
 ```
 
-```{r DATA ANA Some simple stuff to get an idea, eval=FALSE}
+Some basic comparisons showing examples how the label could be used.
+```{r DATA ANA Some simple analyses to get an idea, eval=FALSE}
 # ~twice as likely to have a metabolic syndrome as a patient compared to a HC
 data %>% 
   select(v1_id, v1_stat) %>% 
