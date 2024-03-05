@@ -369,8 +369,17 @@ label_remission <-
 ```
 
 #### Bipolar patients
-TODO: Full explanation with literature YMRStot =< 7 or =< 12 etc
+TODO: Finish the part with depression and adapt the code accordingly.
 
+Remission in bipolar patients basically means to be in remission regarding mania and regarding depression.  
+
+To define the remission regarding mania usually the Young Mania Rating Scale (YMRS) is used. But there are two different cutoffs being used:
+
+* YMRS <= 12 (http://dx.doi.org/10.1097/chi.0b013e3180335ae4)
+* YMRS <= 7 (http://dx.doi.org/10.1034/j.1399-5618.2003.02237.x, http://dx.doi.org/10.1016/j.jad.2007.06.011 - even argue for <= 4 but also support <=7)
+
+To define the remission regarding depression in bipolar patients usually the MADRS and/or HAMD are used.
+In the PsyCourse data the Inventory of depressive symptomatology (IDS-C30) and the BDI-II are available.
 ##### Missings
 ```{r DATA ANALYSIS Table of missing pattern YMRS sum_tot also F31x remission criterium}
 data %>%
@@ -394,33 +403,18 @@ data %>%
 TODO: Add the control for the episode since last visit
 ```{r DATA ANALYSIS F31x remission ever}
 #could not find a time criteria for the mania remission according to YMRS
-F31x_id_remission_ever <-
+Label_F31x_id_remission_ever <-
 data %>%
   filter(v1_stat == "CLINICAL") %>%
   select(v1_id, contains("ymrs_sum")) %>%
-  rename(ID = v1_id) %>%
-  filter(ID %in% F31x_id) %>%
-  pivot_longer(cols = -ID,
+  filter(v1_id %in% F31x_id) %>%
+  pivot_longer(cols = -v1_id,
                names_to = c("time_point"),
                names_pattern = "v(\\d+)",
                values_to = "ymrs_sum_score") %>% 
   group_by(ID) %>% 
   summarise(ever_in_remission=any(ymrs_sum_score<=7, na.rm = T)) %>%
-  filter(ever_in_remission == T) %>% 
-  pull(ID)
-
-data %>%
-  filter(v1_stat == "CLINICAL") %>%
-  select(v1_id, contains("ymrs_sum")) %>%
-  rename(ID = v1_id) %>%
-  filter(ID %in% F31x_id) %>%
-  pivot_longer(cols = -ID,
-               names_to = c("time_point"),
-               names_pattern = "v(\\d+)",
-               values_to = "ymrs_sum_score") %>% 
-  group_by(ID) %>% 
-  summarise(ever_in_remission=any(ymrs_sum_score<=7, na.rm = T)) %>% 
-  count(ever_in_remission)
+  select(v1_id, ever_in_remission)
 ```
 
 ### LABEL Weightgain under AP medication
