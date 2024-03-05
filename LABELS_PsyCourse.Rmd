@@ -74,8 +74,8 @@ data %>%
 
 # Introduction
 In this file different labels or new dimensions for the subjects in the PsyCourse datafile are created based on the phenotypical data.
-The PsyCourse study is described here: [url]http://www.psycourse.de/index.html and in this study [url]http://dx.doi.org/10.1002/ajmg.b.32639
-The codebook decribing all the variables in the acquired dataset can be found here: [url]https://data.ub.uni-muenchen.de/251/1/210908_PsyCourse_v5.0.html
+The PsyCourse study is described here: http://www.psycourse.de/index.html and in this study http://dx.doi.org/10.1002/ajmg.b.32639
+The codebook decribing all the variables in the acquired dataset can be found here: https://data.ub.uni-muenchen.de/251/1/210908_PsyCourse_v5.0.html
 
 Depending on the complexity of the label there are some characteristics of the dataset which complicate things. Some of these are:
 
@@ -163,6 +163,129 @@ top_loadings_PC3
 
 ```
 
+
+### LABEL Metabolic Syndrom
+According to the criteria in http://dx.doi.org/10.1111/j.1464-5491.2006.01858.x (see table 5 in the paper for the worldwide definition) subjects with a metabolic syndrome are defined based on the somatic data from visit 1.
+
+#### Limitations
+Not all criteria for the metabolic syndrome are available in the data:
+
+* Central obesity
+ + waist circumference criteria is not ethnicity specific
+* Raised triglycerides
+ + only available in a dichotomous variable for triglyceride and cholesterol combined
+* Reduced HDL-cholesterol
+ + not available
+* Raised blood pressure
+ + only available as a dichotomous variable for systolic and diastolic combined
+* Raised fasting plasma glucose
+ + only criteria 'diabetes' available
+ + no fasting plasma glucose or oral glucose tolerance test
+ 
+#### Label
+
+Simple first version
+```{r DATA ANALYSIS All subjects metabolic syndrome simple at v1}
+label_metabolic_syndrome_simple <-
+  data %>% 
+  select(v1_id, v1_sex, v1_bmi, v1_waist, v1_chol_trig, v1_hyperten, v1_diabetes) %>%
+  rowwise() %>% 
+  mutate(Two_Criteria = sum(c_across(v1_chol_trig:v1_diabetes) == "Y") >= 2) %>%
+  ungroup() %>% 
+  mutate(metabolic_syndrome = ifelse(((v1_sex == 'F' & v1_waist >= 80) | (v1_sex == "M" & v1_waist >=94) | (v1_bmi > 30)) & (Two_Criteria), TRUE, FALSE)) %>% 
+  select(v1_id, metabolic_syndrome)
+```
+
+```{r DATA ANALYSIS distinct categories of medications}
+med_categories <-
+v1_med_clin_orig %>% 
+  select(starts_with ("v1_medikabehand3_med_kategorie_199998_")) %>% 
+  pivot_longer(cols=everything(),
+               names_to = "Variable",
+               values_to = "Value") %>% 
+  distinct(Value)  
+
+med_subcategories <-
+v1_med_clin_orig %>% 
+  select(starts_with ("v1_medikabehand3_med_kategorie_sub_199998_")) %>% 
+  pivot_longer(cols=everything(),
+               names_to = "Variable",
+               values_to = "Value") %>% 
+  distinct(Value)
+```
+
+Taking the medication criteria into account.
+```{r DATA ANALYSIS All subjects metabolic syndrome at v1}
+label_metabolic_syndrome <-
+data %>%
+  left_join(x = .,
+            y = v1_med_clin_orig,
+            by = "v1_id") %>%
+  mutate(central_obesity = if_else((v1_sex == 'F' & v1_waist >= 80) | (v1_sex == "M" & v1_waist >= 94) | (v1_bmi > 30), TRUE, FALSE, missing=FALSE),
+         raised_fasting_plasma_glucose = v1_diabetes == 'Y'
+  )%>% 
+  rowwise() %>% 
+  mutate(raised_triglycerides = if_else(v1_chol_trig == 'Y' | rowSums(across(starts_with("v1_medikabehand3_med_kategorie_sub_199998_"), ~ .x == "(Cholesetrinsenker)"), na.rm =TRUE)>0, TRUE, FALSE),
+         raised_bloodpressure = ifelse(v1_hyperten == 'Y' | rowSums(across(starts_with("v1_medikabehand3_med_kategorie_sub_199998_"), ~ .x == "Antihypertensiva"), na.rm = TRUE)>0, TRUE, FALSE))%>%
+  ungroup()%>%
+  mutate(metabolic_syndrome = central_obesity &
+           ((raised_triglycerides + raised_bloodpressure + raised_fasting_plasma_glucose) >= 2)) %>% 
+  select(v1_id, metabolic_syndrome, central_obesity)
+```
+
+```{r DATA overview over the results}
+summary(label_metabolic_syndrome)
+summary(label_metabolic_syndrome_simple)
+```
+
+```{r DATA ANA Some simple stuff to get an idea, eval=FALSE}
+# ~twice as likely to have a metabolic syndrome as a patient compared to a HC
+data %>% 
+  select(v1_id, v1_stat) %>% 
+  left_join(x = .,
+            y = label_metabolic_syndrome,
+            by = "v1_id") %>% 
+  select(v1_stat, metabolic_syndrome) %>% 
+  table() %>% 
+  fisher.test()
+
+# ~twice as likely to have central obesity as a patient
+data %>% 
+  select(v1_id, v1_stat) %>% 
+  left_join(x = .,
+            y = label_metabolic_syndrome,
+            by = "v1_id") %>% 
+  select(v1_stat, central_obesity) %>% 
+  table() %>% 
+  fisher.test()
+
+# ~twice as likely to have a metabolic syndrome if you ever took lithium as a patient
+data %>%
+  filter(v1_stat=="CLINICAL", v1_lith != -999) %>% 
+  select(v1_id, v1_lith) %>%
+  droplevels() %>% 
+  left_join(x = .,
+            y = label_metabolic_syndrome,
+            by = "v1_id") %>% 
+  select(v1_lith, metabolic_syndrome) %>%
+  table() %>% 
+  fisher.test()
+
+# >twice as likely to have metabolic syndrome when taking any antidepressant medication as a patient 
+data %>% 
+  filter(v1_stat == "CLINICAL") %>% 
+  select(v1_id, v1_Antidepressants) %>% 
+  mutate(v1_antidep_ever = ifelse(v1_Antidepressants > 0, TRUE, FALSE)) %>% 
+  droplevels() %>% 
+  left_join(x = .,
+            y = label_metabolic_syndrome,
+            by = "v1_id") %>% 
+  select(v1_antidep_ever, metabolic_syndrome) %>%
+  table() %>% 
+  fisher.test()
+
+```
+
 ## Longitudinal
 
 ### LABEL Remission within the 18 months time course (never/ever/always)
@@ -243,7 +366,7 @@ label_remission <-
 ```
 
 #### Bipolar patients
-TODO: Fully explanation with literature YMRStot =< 7 or =< 12 etc
+TODO: Full explanation with literature YMRStot =< 7 or =< 12 etc
 
 ##### Missings
 ```{r DATA ANALYSIS Table of missing pattern YMRS sum_tot also F31x remission criterium}
@@ -299,7 +422,42 @@ data %>%
 
 ### LABEL Weightgain under AP medication
 
-```{r}
+#### Missings
+```{r DATA ANALYSIS Table of missing pattern weight}
+data %>%
+  filter(v1_stat == "CLINICAL") %>%
+  select(v1_id, contains("weight")) %>%
+  mutate_at(vars(matches("v(\\d+)_weight")), as.numeric) %>% 
+  pivot_longer(cols = -v1_id,
+               names_to = c("time_point"),
+               names_pattern = "v(\\d+)_weight",
+               values_to = "value") %>%
+  group_by(v1_id, time_point) %>% 
+  summarise(miss = ifelse(any(is.na(value)), '-', '+')) %>% 
+  summarise(pattern = toString(miss)) %>% 
+  count(pattern) %>%
+  mutate(percentage = round((n/sum(n)*100), 2)) %>% 
+  arrange(desc(n))
+```
+
+```{r DATA LOADING Medication}
+load("data/230614_v6.0_psycourse_clin_raw_med_visit1.RData")
+load("data/230614_v6.0_psycourse_clin_raw_med_visit2.RData")
+load("data/230614_v6.0_psycourse_clin_raw_med_visit3.RData")
+load("data/230614_v6.0_psycourse_clin_raw_med_visit4.RData")
+```
+
+```{r DATA SELECTION}
+data.weight.longi <-
+  data %>%
+  filter(v1_stat == "CLINICAL") %>%
+  select(v1_id, contains("weight"))
+
+#data.metabolicS.v1 <-
+  
+
 
 ```
+
+
 
