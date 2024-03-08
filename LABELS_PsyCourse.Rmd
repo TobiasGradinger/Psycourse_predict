@@ -32,6 +32,11 @@ check_two_true_in_a_row <- function(vector) {
 load("231107_PsyCourse6.0_Pheno_Proposal_69_Schwarz.RData")
 data <- prop
 rm(prop)
+
+load("data/230614_v6.0_psycourse_clin_raw_med_visit1.RData")
+load("data/230614_v6.0_psycourse_clin_raw_med_visit2.RData")
+load("data/230614_v6.0_psycourse_clin_raw_med_visit3.RData")
+load("data/230614_v6.0_psycourse_clin_raw_med_visit4.RData")
 ```
 
 ```{r DATA Create diagnosis filter vectors}
@@ -435,13 +440,6 @@ data %>%
   count(pattern) %>%
   mutate(percentage = round((n/sum(n)*100), 2)) %>% 
   arrange(desc(n))
-```
-
-```{r DATA LOADING Medication}
-load("data/230614_v6.0_psycourse_clin_raw_med_visit1.RData")
-load("data/230614_v6.0_psycourse_clin_raw_med_visit2.RData")
-load("data/230614_v6.0_psycourse_clin_raw_med_visit3.RData")
-load("data/230614_v6.0_psycourse_clin_raw_med_visit4.RData")
 ```
 
 ```{r DATA SELECTION}
